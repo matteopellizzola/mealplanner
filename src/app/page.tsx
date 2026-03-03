@@ -246,8 +246,12 @@ export default function Home() {
               <p className="text-sm text-[#8b7569]">
                 Settimana attiva: {activeWeek?.name ?? "Nessuna configurata"}
               </p>
-              <div className="rounded-2xl border border-[#f1e2d7] bg-[#fff6ef] p-4 text-[#3a2b24]">
-                {todayMenu || "Aggiungi un menu per oggi."}
+              <div className="rounded-2xl border border-[#f1e2d7] bg-[#fff6ef] p-4 text-[#3a2b24] whitespace-pre-wrap">
+                {todayMenu ? (
+                  <div>{todayMenu}</div>
+                ) : (
+                  "Aggiungi un menu per oggi."
+                )}
               </div>
               <div className="flex flex-wrap gap-3">
                 <button
