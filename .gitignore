@@ -1,0 +1,46 @@
+node_modules/
+.next/
+out/
+dist/
+coverage/
+.turbo/
+.parcel-cache/
+
+# Env files
+.env
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor directories and system files
+.vscode/
+**/*.swp
+**/*.swo
+.DS_Store
+.idea/
+
+# TypeScript
+*.tsbuildinfo
+
+# Local builds
+build/
+
+# Mac
+.AppleDouble
+
+# Optional lock files
+package-lock.json
+pnpm-lock.yaml
+
+# Next.js build output
+.next/
+
+# Vercel
+.vercel/
+
+# JetBrains
+out/
