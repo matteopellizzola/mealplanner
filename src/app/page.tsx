@@ -71,9 +71,11 @@ const weeksBetween = (start: Date, end: Date) => {
   return Math.floor((end.getTime() - start.getTime()) / msWeek);
 };
 
-const getTodayKey = (): DayKey => {
+//args are optional, if tomorrow is true it returns the key for tomorrow instead of today
+const getTodayKey = ({ tomorrow = false }: { tomorrow?: boolean }): DayKey => {
   const day = new Date().getDay();
-  switch (day) {
+  const offset = tomorrow ? 1 : 0;
+  switch (day + offset) {
     case 0:
       return "domenica";
     case 1:
@@ -95,6 +97,7 @@ export default function Home() {
   const [weeks, setWeeks] = useState<WeekMenu[]>([]);
   const [anchorDate, setAnchorDate] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [collapsedWeeks, setCollapsedWeeks] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -105,12 +108,13 @@ export default function Home() {
         const parsed = JSON.parse(raw) as StoredData;
         setWeeks(parsed.weeks || []);
         setAnchorDate(parsed.anchorDate || null);
+        setCollapsedWeeks(new Set((parsed.weeks || []).map(w => w.id)));
       } catch (error) {
         console.warn("Errore parsing localStorage", error);
       }
     }
     setHydrated(true);
-  }, []);
+  }, [])
 
   useEffect(() => {
     if (!hydrated) return;
@@ -118,7 +122,8 @@ export default function Home() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [anchorDate, hydrated, weeks]);
 
-  const todayKey = useMemo(getTodayKey, []);
+  const todayKey = useMemo(() => getTodayKey({}), []);
+  const tomorrowKey = useMemo(() =>getTodayKey({ tomorrow: true}), []);
 
   const activeWeek = useMemo(() => {
     if (!anchorDate || weeks.length === 0) return null;
@@ -130,6 +135,7 @@ export default function Home() {
   }, [anchorDate, weeks]);
 
   const todayMenu = activeWeek?.days[todayKey] ?? "";
+  const tomorrowMenu = activeWeek?.days[tomorrowKey] ?? "";
 
   const addWeek = () => {
     const nextIndex = weeks.length + 1;
@@ -161,9 +167,38 @@ export default function Home() {
     setWeeks((prev) => prev.filter((week) => week.id !== id));
   };
 
+  const toggleWeekCollapse = (id: string) => {
+    setCollapsedWeeks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   const exportJson = () => {
-    const payload: StoredData = { weeks, anchorDate };
+    // Get current weeks from state; if empty, try localStorage as fallback
+    let dataToExport = weeks;
+    if (dataToExport.length === 0) {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as StoredData;
+          dataToExport = parsed.weeks || [];
+        } catch (e) {
+          console.warn("Fallback: localStorage parse error", e);
+        }
+      }
+    }
+    
+    const payload: StoredData = { weeks: dataToExport, anchorDate };
     const json = JSON.stringify(payload, null, 2);
+    
+    console.log("Exporting:", { weeksLength: dataToExport.length, payload });
+    
     const defaultName = `meal-planner-${new Date().toISOString().slice(0, 10)}`;
     const rawName = window.prompt("Nome del file da esportare:", defaultName);
     if (!rawName) return;
@@ -173,15 +208,25 @@ export default function Home() {
       .replace(/\s+/g, "-")
       .slice(0, 80);
     if (!safeName) return;
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = safeName.endsWith(".json") ? safeName : `${safeName}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    
+    try {
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = safeName.endsWith(".json") ? safeName : `${safeName}.json`;
+      document.body.appendChild(link);
+      link.click();
+      
+      // Safari fix: delay cleanup to ensure download starts
+      setTimeout(() => {
+        link.remove();
+        URL.revokeObjectURL(url);
+      }, 100);
+    } catch (error) {
+      console.error("Export error:", error);
+      alert("Errore esportazione. Dati:\n\n" + json);
+    }
   };
 
   const handleImportClick = () => {
@@ -203,6 +248,7 @@ export default function Home() {
 
         setWeeks(parsed.weeks);
         setAnchorDate(parsed.anchorDate ?? null);
+        setCollapsedWeeks(new Set(parsed.weeks.map(w => w.id)));
       } catch (error) {
         console.warn("Errore import JSON", error);
         alert("Impossibile importare il file.");
@@ -252,6 +298,18 @@ export default function Home() {
                 ) : (
                   "Aggiungi un menu per oggi."
                 )}
+              </div>
+              <div>
+                <p className="text-xs italic uppercase text-[#b27652] mb-2">
+                  E domani...
+                </p>
+                <div className="italic rounded-2xl border border-[#f1e2d7] bg-[#fffbf8] p-4 text-[#3a2b24] whitespace-pre-wrap">
+                  {tomorrowMenu ? (
+                    <div>{tomorrowMenu}</div>
+                  ) : (
+                    "Aggiungi un menu per il giorno successivo."
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap gap-3">
                 <button
@@ -329,50 +387,62 @@ export default function Home() {
             </div>
           ) : (
             <div className="grid gap-6 lg:grid-cols-2">
-              {weeks.map((week) => (
-                <div
-                  key={week.id}
-                  className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-[0_20px_50px_-35px_rgba(41,18,9,0.7)]"
-                >
-                  <div className="flex flex-wrap items-center gap-3">
-                    <input
-                      value={week.name}
-                      onChange={(event) =>
-                        updateWeekName(week.id, event.target.value)
-                      }
-                      className="w-full rounded-2xl border border-transparent bg-[#f7f1ec] px-4 py-2 text-base font-semibold text-[#2b1b13] outline-none transition focus:border-[#d9a37b]"
-                      placeholder="Nome settimana"
-                    />
-                    <button
-                      onClick={() => removeWeek(week.id)}
-                      className="rounded-full border border-[#e2c7b3] px-3 py-1 text-xs font-semibold text-[#8c4c2a] transition hover:bg-[#f7e7d5]"
-                    >
-                      Rimuovi
-                    </button>
-                  </div>
-
-                  <div className="mt-4 grid gap-3">
-                    {DAY_KEYS.map((day) => (
-                      <label
-                        key={day}
-                        className="flex flex-col gap-2 rounded-2xl border border-[#f1e2d7] bg-[#fff8f3] p-3"
+              {weeks.map((week) => {
+                const isCollapsed = collapsedWeeks.has(week.id);
+                return (
+                  <div
+                    key={week.id}
+                    className="rounded-3xl border border-white/70 bg-white/80 p-6 shadow-[0_20px_50px_-35px_rgba(41,18,9,0.7)]"
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        onClick={() => toggleWeekCollapse(week.id)}
+                        className="rounded-full border border-[#d9a37b] px-3 py-1 text-xs font-semibold text-[#8c4c2a] transition hover:bg-[#f7e7d5]" 
+                        title={isCollapsed ? 'Espandi' : 'Riduci'}
                       >
-                        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[#b27652]">
-                          {IT_DAY_LABELS_SHORT[day]}
-                        </span>
-                        <textarea
-                          value={week.days[day]}
-                          onChange={(event) =>
-                            updateDay(week.id, day, event.target.value)
-                          }
-                          className="min-h-[64px] w-full resize-none bg-transparent text-sm text-[#3a2b24] outline-none"
-                          placeholder={`Menu ${IT_DAY_LABELS[day]}`}
-                        />
-                      </label>
-                    ))}
+                        {isCollapsed ? '▶' : '▼'}
+                      </button>
+                      <input
+                        value={week.name}
+                        onChange={(event) =>
+                          updateWeekName(week.id, event.target.value)
+                        }
+                        className="flex-1 rounded-2xl border border-transparent bg-[#f7f1ec] px-4 py-2 text-base font-semibold text-[#2b1b13] outline-none transition focus:border-[#d9a37b]"
+                        placeholder="Nome settimana"
+                      />
+                      <button
+                        onClick={() => removeWeek(week.id)}
+                        className="rounded-full border border-[#e2c7b3] px-3 py-1 text-xs font-semibold text-[#8c4c2a] transition hover:bg-[#f7e7d5]"
+                      >
+                        Rimuovi
+                      </button>
+                    </div>
+
+                    {!isCollapsed && (
+                      <div className="mt-4 grid gap-3">
+                        {DAY_KEYS.map((day) => (
+                          <label
+                            key={day}
+                            className="flex flex-col gap-2 rounded-2xl border border-[#f1e2d7] bg-[#fff8f3] p-3"
+                          >
+                            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-[#b27652]">
+                              {IT_DAY_LABELS_SHORT[day]}
+                            </span>
+                            <textarea
+                              value={week.days[day]}
+                              onChange={(event) =>
+                                updateDay(week.id, day, event.target.value)
+                              }
+                              className="min-h-[64px] w-full resize-none bg-transparent text-sm text-[#3a2b24] outline-none"
+                              placeholder={`Menu ${IT_DAY_LABELS[day]}`}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
